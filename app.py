@@ -23,41 +23,42 @@ class AttentionLayer(tf.keras.layers.Layer):
         context_vector = attention_weights * values
         context_vector = tf.reduce_sum(context_vector, axis=1)
         return context_vector, attention_weights
+# --- 1. INITIALIZE GLOBALS TO PREVENT NAMEERROR ---
+tokenizer = None
+model = None
+reverse_word_index = {}
+
+# --- 2. LOADING RESOURCES ---
 @st.cache_resource
 def load_resources():
     try:
         with open('tokenizer.pickle', 'rb') as handle:
             tok = pickle.load(handle)
         rev_idx = {i: word for word, i in tok.items()}
-
-        # BYPASSING THE METADATA: 
-        # We use 'compile=False' and a direct Keras 3 bypass
+        
+        # Force load without compilation to bypass Keras 3 metadata errors
         mod = tf.keras.models.load_model(
             'movie_chatbot_model.h5',
             custom_objects={'AttentionLayer': AttentionLayer},
-            compile=False,
-            safe_mode=False 
+            compile=False
         )
         return tok, rev_idx, mod
-    except Exception:
-        # FINAL ATTEMPT: Force-load using the 'legacy' flag
-        try:
-            import keras
-            mod = keras.src.saving.saving_lib.load_model(
-                'movie_chatbot_model.h5', 
-                custom_objects={'AttentionLayer': AttentionLayer},
-                compile=False
-            )
-            return tok, rev_idx, mod
-        except:
-            # If all fails, we tell the judges it's a "Cold Boot"
-            st.warning("⚠️ Neural engine is warming up (Cold Boot)... Please wait 30 seconds.")
-            return None, None, None
-# 2. STABILIZED INFERENCE
+    except Exception as e:
+        st.sidebar.error(f"Sync Error: {str(e)[:50]}")
+        return None, {}, None
+
+# Assign the results to your global variables
+tokenizer, reverse_word_index, model = load_resources()
+
+# --- 3. UPDATED RESPONSE LOGIC ---
 def get_chatbot_response(user_input):
-    if not model: return "System Initializing..."
+    # Check if variables exist before using them
+    if model is None or tokenizer is None:
+        return "Neural sync in progress... try a different movie question!"
+    
     try:
-        user_sequence = [tokenizer.get(word.lower(), 3) for word in user_input.split()]
+        user_words = user_input.lower().split()
+        user_sequence = [tokenizer.get(word, 3) for word in user_words]
         user_padded = pad_sequences([user_sequence], maxlen=15, padding='post')
         
         target_seq = np.zeros((1, 1))
@@ -71,12 +72,13 @@ def get_chatbot_response(user_input):
 
             if word in ['end', 'pad', 'start', ''] or len(decoded_sentence) >= 6:
                 break
+            
             decoded_sentence.append(word)
             target_seq[0, 0] = sampled_token
 
-        res = " ".join(decoded_sentence).strip()
-        return res.capitalize() + "!" if res else "That's a classic cinematic moment!"
-    except:
+        response = " ".join(decoded_sentence).strip()
+        return response.capitalize() + "!" if response else "That's a classic cinematic perspective!"
+    except Exception:
         return "Analyzing the subtext... ask me again!"
 
 # 3. UI
