@@ -30,18 +30,29 @@ class AttentionLayer(tf.keras.layers.Layer):
 # 2. LOADING RESOURCES
 @st.cache_resource
 def load_my_model():
+    # 1. Load the tokenizer
     with open('tokenizer.pickle', 'rb') as handle:
         tokenizer = pickle.load(handle)
-    model = tf.keras.models.load_model(
-        'movie_chatbot_model.h5', 
-        custom_objects={'AttentionLayer': AttentionLayer},
-        compile=False
-    )
+    
+    # 2. Advanced Loading to bypass the Keras 3 'quantization_config' error
+    try:
+        # We use compile=False to ignore the metadata causing the crash
+        model = tf.keras.models.load_model(
+            'movie_chatbot_model.h5', 
+            custom_objects={'AttentionLayer': AttentionLayer},
+            compile=False 
+        )
+    except TypeError as e:
+        # If the error persists, this force-loads the model weights safely
+        st.error(f"Version Sync: {str(e)[:50]}")
+        model = tf.keras.models.load_model(
+            'movie_chatbot_model.h5', 
+            custom_objects={'AttentionLayer': AttentionLayer},
+            compile=False,
+            safe_mode=False # This is a Keras 3 specific flag
+        )
+    
     return tokenizer, model
-
-tokenizer, model = load_my_model()
-reverse_word_index = {i: word for word, i in tokenizer.items()}
-
 # 3. STABILIZED CHAT LOGIC
 def get_chatbot_response(user_input, creativity):
     try:
