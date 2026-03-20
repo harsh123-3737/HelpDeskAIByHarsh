@@ -32,15 +32,17 @@ class AttentionLayer(tf.keras.layers.Layer):
 def load_my_model():
     with open('tokenizer.pickle', 'rb') as handle:
         tokenizer = pickle.load(handle)
+    
+    # We use 'compile=False' to bypass the metadata check during loading
     model = tf.keras.models.load_model(
         'movie_chatbot_model.h5', 
         custom_objects={'AttentionLayer': AttentionLayer},
         compile=False
     )
+    
+    # Manually compile it here if you need to, but for inference, 
+    # just loading the weights is enough!
     return tokenizer, model
-
-tokenizer, model = load_my_model()
-reverse_word_index = {i: word for word, i in tokenizer.items()}
 
 # 3. STABILIZED CHAT LOGIC
 def get_chatbot_response(user_input, creativity):
