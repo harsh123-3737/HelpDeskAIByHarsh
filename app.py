@@ -29,17 +29,28 @@ class AttentionLayer(tf.keras.layers.Layer):
 # 2. GLOBAL LOADING (This fixes the "Subtext" error)
 @st.cache_resource
 def load_resources():
+    # Load the tokenizer
     with open('tokenizer.pickle', 'rb') as handle:
         tok = pickle.load(handle)
     
-    # Create the reverse index globally
     rev_idx = {i: word for word, i in tok.items()}
     
-    mod = tf.keras.models.load_model(
-        'movie_chatbot_model.h5', 
-        custom_objects={'AttentionLayer': AttentionLayer},
-        compile=False
-    )
+    # CRITICAL: Use compile=False to bypass the Keras 3 metadata error
+    try:
+        mod = tf.keras.models.load_model(
+            'movie_chatbot_model.h5', 
+            custom_objects={'AttentionLayer': AttentionLayer},
+            compile=False
+        )
+    except TypeError:
+        # Emergency fallback for version mismatch
+        import keras
+        mod = keras.models.load_model(
+            'movie_chatbot_model.h5',
+            custom_objects={'AttentionLayer': AttentionLayer},
+            compile=False
+        )
+        
     return tok, rev_idx, mod
 
 # Initialize these globally
