@@ -28,31 +28,36 @@ class AttentionLayer(tf.keras.layers.Layer):
         return context_vector, attention_weights
 
 # 2. LOADING RESOURCES
+# 2. LOADING RESOURCES (Safe Version for Streamlit Cloud)
 @st.cache_resource
 def load_my_model():
-    # 1. Load the tokenizer
-    with open('tokenizer.pickle', 'rb') as handle:
-        tokenizer = pickle.load(handle)
-    
-    # 2. Advanced Loading to bypass the Keras 3 'quantization_config' error
     try:
-        # We use compile=False to ignore the metadata causing the crash
+        # Load the tokenizer
+        with open('tokenizer.pickle', 'rb') as handle:
+            tokenizer = pickle.load(handle)
+        
+        # Load the model while COMPLETELY ignoring the training config
+        # This prevents the 'quantization_config' TypeError
         model = tf.keras.models.load_model(
             'movie_chatbot_model.h5', 
             custom_objects={'AttentionLayer': AttentionLayer},
-            compile=False 
+            compile=False
         )
-    except TypeError as e:
-        # If the error persists, this force-loads the model weights safely
-        st.error(f"Version Sync: {str(e)[:50]}")
-        model = tf.keras.models.load_model(
-            'movie_chatbot_model.h5', 
-            custom_objects={'AttentionLayer': AttentionLayer},
-            compile=False,
-            safe_mode=False # This is a Keras 3 specific flag
-        )
-    
-    return tokenizer, model
+        
+        return tokenizer, model
+    except Exception as e:
+        # This will show the actual error on your Streamlit screen 
+        # so you can see it during the demo if it fails
+        st.error(f"Neural Load Error: {str(e)[:100]}")
+        return None, None
+
+tokenizer, model = load_my_model()
+
+# Safety check to prevent the 'NoneType' crash
+if tokenizer and model:
+    reverse_word_index = {i: word for word, i in tokenizer.items()}
+else:
+    st.warning("⚠️ Model is initializing. Please wait or check logs.")
 # 3. STABILIZED CHAT LOGIC
 def get_chatbot_response(user_input, creativity):
     try:
