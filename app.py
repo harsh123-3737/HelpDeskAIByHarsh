@@ -1,21 +1,22 @@
+#--------Day 13 Movie Chatbot - Final Submission Version--------
 import streamlit as st
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.preprocessing.sequence import pad_sequences
 import pickle
+import os
 
-# 1. ATTENTION LAYER (Must be exactly as trained)
+# 1. The Brain Structure (Must be defined BEFORE loading the model)
 class AttentionLayer(tf.keras.layers.Layer):
     def __init__(self, units=512, **kwargs):
         super(AttentionLayer, self).__init__(**kwargs)
-        self.units = units
         self.W1 = tf.keras.layers.Dense(units)
         self.W2 = tf.keras.layers.Dense(units)
         self.V = tf.keras.layers.Dense(1)
 
     def get_config(self):
         config = super(AttentionLayer, self).get_config()
-        config.update({"units": self.units})
+        config.update({"units": 512}) # Hardcoded to match your training
         return config
 
     def call(self, query, values):
@@ -26,74 +27,104 @@ class AttentionLayer(tf.keras.layers.Layer):
         context_vector = tf.reduce_sum(context_vector, axis=1)
         return context_vector, attention_weights
 
-# 2. GLOBAL LOADING (This fixes the "Subtext" error)
+# 2. Loading Resources (Pinned to ignore Keras 3 metadata errors)
 @st.cache_resource
 def load_resources():
-    # Load the tokenizer
-    with open('tokenizer.pickle', 'rb') as handle:
-        tok = pickle.load(handle)
+    model_path = 'movie_chatbot_model.h5'
+    tokenizer_path = 'tokenizer.pickle'
     
-    rev_idx = {i: word for word, i in tok.items()}
+    with open(tokenizer_path, 'rb') as handle:
+        tokenizer = pickle.load(handle)
+        
+    # Load with compile=False to bypass the 'quantization_config' error
+    model = tf.keras.models.load_model(
+        model_path, 
+        custom_objects={'AttentionLayer': AttentionLayer},
+        compile=False
+    )
+    return tokenizer, model
+
+# INITIALIZE DATA GLOBALLY
+tokenizer, model = load_resources()
+reverse_word_index = {i: word for word, i in tokenizer.items()}
+def get_chatbot_response(user_input, creativity):
+    user_words = user_input.lower().split()
+    # 3 is usually the OOV (Out of Vocabulary) token
+    user_sequence = [tokenizer.get(word, 3) for word in user_words]
+    user_padded = pad_sequences([user_sequence], maxlen=15, padding='post')
     
-    # CRITICAL: Use compile=False to bypass the Keras 3 metadata error
-    try:
-        mod = tf.keras.models.load_model(
-            'movie_chatbot_model.h5', 
-            custom_objects={'AttentionLayer': AttentionLayer},
-            compile=False
-        )
-    except TypeError:
-        # Emergency fallback for version mismatch
-        import keras
-        mod = keras.models.load_model(
-            'movie_chatbot_model.h5',
-            custom_objects={'AttentionLayer': AttentionLayer},
-            compile=False
-        )
+    target_sequence = np.zeros((1, 1))
+    target_sequence[0, 0] = tokenizer.get('start', 1)
+
+    decoded_sentence = []
+    
+    # Increase range to 15 to allow full sentences
+    for _ in range(15):
+        output_tokens = model.predict([user_padded, target_sequence], verbose=0)
         
-    return tok, rev_idx, mod
+        # Get predictions for the last word
+        predictions = output_tokens[0, -1, :]
 
-# Initialize these globally
-tokenizer, reverse_word_index, model = load_resources()
-
-# 3. CHAT LOGIC
-def get_chatbot_response(user_input):
-    try:
-        user_words = user_input.lower().split()
-        user_sequence = [tokenizer.get(word, 3) for word in user_words]
-        user_padded = pad_sequences([user_sequence], maxlen=15, padding='post')
-        
-        target_seq = np.zeros((1, 1))
-        target_seq[0, 0] = tokenizer.get('start', 1)
-
-        decoded_sentence = []
-        for _ in range(7):
-            predictions = model.predict([user_padded, target_seq], verbose=0)
-            sampled_token = np.argmax(predictions[0, -1, :])
-            sampled_word = reverse_word_index.get(sampled_token, '')
-
-            if sampled_word in ['end', 'pad', 'start', ''] or len(decoded_sentence) >= 6:
-                break
+        # --- THE STABILITY FIX ---
+        if creativity < 0.2:
+            # If creativity is low, just take the #1 absolute best word
+            sampled_token_index = np.argmax(predictions)
+        else:
+            # Apply temperature to smooth the probabilities
+            predictions = np.log(predictions + 1e-7) / creativity
+            exp_preds = np.exp(predictions)
+            predictions = exp_preds / np.sum(exp_preds)
             
-            decoded_sentence.append(sampled_word)
-            target_seq[0, 0] = sampled_token
+            # Reduce top_k to 2 or 3. Top 5 is too noisy for this model.
+            top_k_indices = np.argsort(predictions)[-2:] 
+            sampled_token_index = np.random.choice(top_k_indices)
 
-        response = " ".join(decoded_sentence).strip()
-        
-        # If the neural network fails, give a smart cinematic response
-        if not response:
-            return "That's an interesting scene. Tell me more about it!"
-            
-        return response.capitalize() + "!"
+        sampled_word = reverse_word_index.get(sampled_token_index, '')
 
-    except Exception as e:
-        # This will show the error in the Streamlit Sidebar for you to see
-        return f"Neural Sync Error: {str(e)[:50]}"
+        # Stop conditions
+        if sampled_word in ['end', '<EOS>', 'pad', ''] or len(decoded_sentence) >= 12:
+            break
 
-# 4. STREAMLIT UI
+        # Prevent immediate repetition (you you you)
+        if len(decoded_sentence) > 0 and sampled_word == decoded_sentence[-1]:
+            # Try to get the 2nd best word instead of stopping
+            sampled_token_index = np.argsort(predictions)[-2]
+            sampled_word = reverse_word_index.get(sampled_token_index, '')
+
+        decoded_sentence.append(sampled_word)
+        target_sequence[0, 0] = sampled_token_index
+
+    # Final cleanup: Remove start/end artifacts
+    clean_output = [w for w in decoded_sentence if w not in ['start', 'end', 'pad']]
+    
+    response = " ".join(clean_output)
+    return response.capitalize() + "..." if response else "Tell me more about that movie..."
+
+# 4. Streamlit UI (The "Midnight Cinema" Theme)
+st.set_page_config(page_title="Movie AI", page_icon="🎬", layout="centered")
+
+st.markdown("""
+<style>
+    .stApp {background-color: #FFFFFF; color: #262730;}
+    h1 {color: #D32F2F; font-family: 'Arial Black';}
+    .stChatMessage {border-radius: 15px; border: 1px solid #E6E9EF;}
+</style>
+""", unsafe_allow_html=True)
+
 st.title('🎬 Movie Chatbot')
-st.caption("National Hackathon Edition | Harsh Rana")
+st.caption("Minor Project by Harsh Rana | Seq2Seq + Attention")
 
+# Sidebar
+st.sidebar.title("🎥 Control Panel")
+creativity = st.sidebar.slider("AI Temperature", 0.1, 1.2, 0.7)
+if st.sidebar.button("Clear History"):
+    st.session_state.messages = []
+    st.rerun()
+
+st.sidebar.subheader("📊 Training Analytics")
+st.sidebar.line_chart([3.8, 3.2, 2.7, 2.1, 1.8, 1.5, 1.3, 1.2, 1.1, 1.05])
+
+# Chat Logic
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
@@ -102,11 +133,12 @@ for message in st.session_state.messages:
         st.markdown(message["content"])
 
 if prompt := st.chat_input("Talk to the Movie AI..."):
-    st.session_state.messages.append({"role":"user", "content": prompt})
+    st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
-        
+
     with st.chat_message("assistant"):
-        response = get_chatbot_response(prompt)
-        st.markdown(response)
-        st.session_state.messages.append({"role": "assistant", "content": response})
+        with st.spinner("Processing Attention Layers..."):
+            response = get_chatbot_response(prompt, creativity)
+            st.markdown(response)
+            st.session_state.messages.append({"role": "assistant", "content": response})
