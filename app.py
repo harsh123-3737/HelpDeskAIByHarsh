@@ -162,29 +162,30 @@ st.set_page_config(page_title="Movie AI", page_icon="🎬", layout="centered")
 # Custom UI Styling
 st.markdown("""
 <style>
-/* 1. Light Mode (Default) */
-.stApp { background-color: #FFFFFF; }
-.stChatMessage { 
-    border-radius: 15px; 
-    border: 1px solid #E6E9EF; 
-    background-color: #F8F9FB; 
-    color: #000000; /* Force black text in light mode */
-}
-h1 { color: #D32F2F; font-family: 'Arial Black'; text-transform: uppercase; }
+/* 1. Main App Background - Remove hard-coded white so it follows the theme */
+.stApp { background-color: transparent; }
 
-/* 2. Dark Mode Detection */
-@media (prefers-color-color-scheme: dark) {
-    .stApp { background-color: #0E1117; } /* Standard Streamlit Dark */
-    .stChatMessage { 
-        background-color: #262730; 
-        border: 1px solid #464855;
-        color: #FFFFFF; /* Force white text in dark mode */
-    }
-    h1 { color: #FF4B4B; } /* Slightly brighter red for dark backgrounds */
+/* 2. Chat Messages - Using RGBA for transparency or Variable inheritance */
+.stChatMessage {
+    border-radius: 15px;
+    border: 1px solid rgba(128, 128, 128, 0.2); /* Subtle border in both modes */
+    background-color: rgba(128, 128, 128, 0.05); /* Transparent grey that works on white OR black */
+    padding: 10px;
+}
+
+/* 3. Text Color - The "Magic" fix */
+.stChatMessage p {
+    color: inherit !important; /* Forces text to follow the theme (Black in Light, White in Dark) */
+}
+
+/* 4. Heading */
+h1 {
+    color: #D32F2F; 
+    font-family: 'Arial Black'; 
+    text-transform: uppercase;
 }
 </style>
 """, unsafe_allow_html=True)
-
 # SIDEBAR
 st.sidebar.title("🎥 Project Control")
 st.sidebar.info("**Architecture:** Seq2Seq + Attention\n**Compatibility:** Legacy H5 Weights")
