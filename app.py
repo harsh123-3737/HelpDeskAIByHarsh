@@ -145,6 +145,10 @@ def get_chatbot_response(user_input, creativity):
         response = response.replace('<unk>', '').strip()
         if not response or len(response) < 3:
             response = "That's a story for another time..."
+        # Remove common movie-script "noise" and fix "i" capitalization
+        response = response.replace('i ', 'I ').replace(' i ', ' I ').strip()
+        if response.endswith(".."): 
+            response = response[:-2] + "..." # Clean up triple dots
         return response.capitalize() + "..." if response else "The script is a bit quiet on that one..."
     
     except Exception as e:
