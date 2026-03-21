@@ -78,16 +78,16 @@ else:
 
 # 3. STEP 3: THE CHAT LOGIC (Using the corrected 'tokenizer' variable)
 def get_chatbot_response(user_input, creativity):
-    if not model or not tokenizer:
+    if not model or not tokenizer_obj:
         return "System Initializing... please wait."
         
     user_words = user_input.lower().split()
     # Now 'tokenizer' is defined globally!
-    user_sequence = [tokenizer.get(word, 0) for word in user_words]
+    user_sequence = [tokenizer_obj.get(word, 0) for word in user_words]
     user_padded = pad_sequences([user_sequence], maxlen=15, padding='post')
     
     target_sequence = np.zeros((1, 1))
-    target_sequence[0, 0] = tokenizer.get('start', 1)
+    target_sequence[0, 0] = tokenizer_obj.get('start', 1)
 
     decoded_sentence = []
     for _ in range(12):
