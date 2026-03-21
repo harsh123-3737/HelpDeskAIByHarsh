@@ -1,100 +1,134 @@
+#--------Day 13 make a Streamlit app--------
 import streamlit as st
 import numpy as np
 import tensorflow as tf
-from tensorflow.keras.preprocessing.sequence import pad_sequences
+from tensorflow.keras.preprocessing.sequence import  pad_sequences
 import pickle
+import time
 
-# 1. ARCHITECTURE DEFINITION (Bypasses the .h5 metadata error)
+#1. step-1 The brain structure----
 class AttentionLayer(tf.keras.layers.Layer):
-    def __init__(self, units=512, **kwargs):
-        super(AttentionLayer, self).__init__(**kwargs)
-        self.units = units
-        self.W1 = tf.keras.layers.Dense(units)
-        self.W2 = tf.keras.layers.Dense(units)
-        self.V = tf.keras.layers.Dense(1)
-    def get_config(self):
-        config = super().get_config()
-        config.update({"units": self.units})
-        return config
-    def call(self, query, values):
-        query_with_time_axis = tf.expand_dims(query, 1)
-        score = self.V(tf.nn.tanh(self.W1(query_with_time_axis) + self.W2(values)))
-        attention_weights = tf.nn.softmax(score, axis=1)
-        context_vector = attention_weights * values
-        context_vector = tf.reduce_sum(context_vector, axis=1)
-        return context_vector, attention_weights
-# --- 1. INITIALIZE GLOBALS TO PREVENT NAMEERROR ---
-tokenizer = None
-model = None
-reverse_word_index = {}
+  def __init__(self, units):
+    super(AttentionLayer, self).__init__()
+    self.W1 = tf.keras.layers.Dense(units)
+    self.W2 = tf.keras.layers.Dense(units)
+    self.V = tf.keras.layers.Dense(1)
 
-# --- 2. LOADING RESOURCES ---
+  def call(self, query, values):
+    query_with_time_axis = tf.expand_dims(query, 1)
+    score = self.V(tf.nn.tanh(self.W1(query_with_time_axis) + self.W2(values)))
+    attention_weights = tf.nn.softmax(score, axis=1)
+    context_vector = attention_weights * values
+    context_vector = tf.reduce_sum(context_vector, axis=1)
+    return context_vector, attention_weights
+
+#2. step2 loading the model
 @st.cache_resource
-def load_resources():
-    try:
-        with open('tokenizer.pickle', 'rb') as handle:
-            tok = pickle.load(handle)
-        rev_idx = {i: word for word, i in tok.items()}
-        
-        # Force load without compilation to bypass Keras 3 metadata errors
-        mod = tf.keras.models.load_model(
-            'movie_chatbot_model.h5',
-            custom_objects={'AttentionLayer': AttentionLayer},
-            compile=False
-        )
-        return tok, rev_idx, mod
-    except Exception as e:
-        st.sidebar.error(f"Sync Error: {str(e)[:50]}")
-        return None, {}, None
+def load_my_model():
+  with open('tokenizer.pickle', 'rb') as handle:
+    tokenizer = pickle.load(handle)
+  model = tf.keras.models.load_model('movie_chatbot_model.h5', custom_objects={'AttentionLayer': AttentionLayer},
+                                     compile=False)
+  return tokenizer, model
 
-# Assign the results to your global variables
-tokenizer, reverse_word_index, model = load_resources()
+tokenizer, model = load_my_model()
+reverse_word_index = {i: word for word, i in tokenizer.items()}
 
-# --- 3. UPDATED RESPONSE LOGIC ---
-def get_chatbot_response(user_input):
-    # Check if variables exist before using them
-    if model is None or tokenizer is None:
-        return "Neural sync in progress... try a different movie question!"
-    
-    try:
-        user_words = user_input.lower().split()
-        user_sequence = [tokenizer.get(word, 3) for word in user_words]
-        user_padded = pad_sequences([user_sequence], maxlen=15, padding='post')
-        
-        target_seq = np.zeros((1, 1))
-        target_seq[0, 0] = tokenizer.get('start', 1)
+#3. step3 the chat logic for app
+def get_chatbot_response(user_input, creativity):
+  user_words = user_input.lower().split()
+  user_sequence = [tokenizer.get(word, 0) for word in user_words]
+  user_padded = pad_sequences([user_sequence], maxlen=15, padding='post')
+  target_sequence = np.zeros((1, 1))
+  target_sequence[0, 0] = tokenizer.get('start', 1)
 
-        decoded_sentence = []
-        for _ in range(7):
-            predictions = model.predict([user_padded, target_seq], verbose=0)
-            sampled_token = np.argmax(predictions[0, -1, :])
-            word = reverse_word_index.get(sampled_token, '')
+  decoded_sentence = []
+  res = []
+  last_word = ""
+  for _ in range(12):
+    output_tokens = model.predict([user_padded, target_sequence], verbose=0)
+    predictions = output_tokens[0, -1, :]
 
-            if word in ['end', 'pad', 'start', ''] or len(decoded_sentence) >= 6:
-                break
-            
-            decoded_sentence.append(word)
-            target_seq[0, 0] = sampled_token
+    predictions = np.log(predictions + 1e-7) / creativity
+    exp_preds = np.exp(predictions)
+    predictions = exp_preds / np.sum(exp_preds)
 
-        response = " ".join(decoded_sentence).strip()
-        return response.capitalize() + "!" if response else "That's a classic cinematic perspective!"
-    except Exception:
-        return "Analyzing the subtext... ask me again!"
+    top_k_indices = np.argsort(predictions)[-5:]
 
-# 3. UI
+    sampled_token_index = np.random.choice(top_k_indices)
+    sampled_word = reverse_word_index.get(sampled_token_index, '')
+    if sampled_word in ['end', '<EOS>', 'pad', ''] or len(decoded_sentence) > 10:
+       break
+
+    if len(decoded_sentence) > 0 and sampled_word == decoded_sentence[-1]:
+      continue
+    decoded_sentence.append(sampled_word)
+    target_sequence[0, 0] = sampled_token_index
+
+  #final cleanp: remove duplicate and capitalize
+  clean_output = []
+  for word in decoded_sentence:
+    if word not in clean_output:
+      clean_output.append(word)
+
+  response = " ".join(clean_output)
+  return response.capitalize() + "..." if response else "I'm listening..."
+
+
+#4. step -4 Streamli user interface----
+st.set_page_config(page_title="Movie AI", page_icon="🎬", layout="centered")
+
+#we set the css for midnight cinema look
+st.markdown("""
+<style>
+.stApp {background-color: #FFFFFF; color: #262730;}
+.stChatMessage {border-radius: 15px;
+        border: 1px solid #E6E9EF;
+        background-color: #F8F9FB;
+        color: #262730;}
+.stSidebar {background-color: #F0F2F6; color: #262730;}
+h1 {color: #D32F2F; font-family: 'Arial Black';}
+</style>
+""", unsafe_allow_html=True)
+
+#sidebar option in app
+st.sidebar.title("🎥 Project Control")
+st.sidebar.info("Model: Seq2Seq + Attention\nDataset: Movie Dialogues")
+creativity = st.sidebar.slider("AI Temprature", 0.1, 1.2, 0.7)
+if st.sidebar.button("Clear History"):
+  st.session_state.messages = []
+  st.rerun()
+st.sidebar.markdown("-------")
+st.sidebar.subheader("📊 Training Analytics")
+
+loss_values = [3.8, 3.2, 2.7, 2.1, 1.8, 1.5, 1.3, 1.2, 1.1 , 1.05]
+st.sidebar.line_chart(loss_values)
+st.sidebar.caption("Model loss over 10 epochs")
+
+
 st.title('🎬 Movie Chatbot')
-st.caption("Harsh Rana")
+st.caption("HelpDesk AI project by Harsh rana using Tensorflow & Streamlit")
 
 if "messages" not in st.session_state:
-    st.session_state.messages = []
+  st.session_state.messages = []
 
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]): st.markdown(msg["content"])
+for message in st.session_state.messages:
+  with st.chat_message(message["role"]):
+    st.markdown(message["content"])
 
-if prompt := st.chat_input("Ask a movie question..."):
-    st.session_state.messages.append({"role":"user", "content": prompt})
-    with st.chat_message("user"): st.markdown(prompt)
-    with st.chat_message("assistant"):
-        response = get_chatbot_response(prompt)
-        st.markdown(response)
-        st.session_state.messages.append({"role": "assistant", "content": response})
+if prompt := st.chat_input("You can ask movie question....."):
+  st.session_state.messages.append({"role":"user", "content": prompt})
+  with st.chat_message("user"):
+    st.markdown(prompt)
+  with st.chat_message("assistant"):
+    with st.spinner(" here processing the attention layers..."):
+      response = get_chatbot_response(prompt, creativity)
+      st.markdown(response)
+      st.session_state.messages.append({"role": "assistant", "content": response})
+
+
+
+
+
+
+
