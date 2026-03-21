@@ -32,38 +32,43 @@ def load_my_model():
     with open('tokenizer_final.pickle', 'rb') as handle:
         tokenizer = pickle.load(handle)
     
-    vocab_size = len(tokenizer) + 1 # This is 21048 based on your error
-    
-    # --- FIXED ARCHITECTURE ---
-    # 1. Change 256 to 100 (matches your error message)
+    # Based on your error, vocab_size is 21048
+    vocab_size = len(tokenizer) + 1 
+
+    # --- THE CORRECT ARCHITECTURE (100-DIM) ---
+    # Encoder
     enc_inputs = tf.keras.Input(shape=(15,))
+    # We change 256 to 100 here to match the weights
     enc_emb = tf.keras.layers.Embedding(vocab_size, 100)(enc_inputs) 
-    
-    # 2. Check your LSTM units (If 512 fails, try 256 here too)
     enc_out, state_h, state_c = tf.keras.layers.LSTM(512, return_sequences=True, return_state=True)(enc_emb)
     
     # Decoder
     dec_inputs = tf.keras.Input(shape=(1,))
-    dec_emb = tf.keras.layers.Embedding(vocab_size, 100)(dec_inputs) # Change 256 to 100 here too
+    # We change 256 to 100 here too
+    dec_emb_layer = tf.keras.layers.Embedding(vocab_size, 100)
+    dec_emb = dec_emb_layer(dec_inputs)
     dec_lstm = tf.keras.layers.LSTM(512, return_sequences=True, return_state=True)
     dec_out, _, _ = dec_lstm(dec_emb, initial_state=[state_h, state_c])
     
-    # Attention & Output
+    # Attention
     attn_layer = AttentionLayer(512)
     context, _ = attn_layer(state_h, enc_out)
     
-    # Combine
-    decoder_combined_context = tf.concat([tf.reshape(dec_out, (-1, 512)), context], axis=-1)
-    outputs = tf.keras.layers.Dense(vocab_size, activation='softmax')(decoder_combined_context)
+    # Combine (Matches the 512 + 512 concatenation)
+    decoder_out_reshaped = tf.reshape(dec_out, (-1, 512))
+    merged = tf.concat([decoder_out_reshaped, context], axis=-1)
+    
+    # Final Output Layer
+    dense = tf.keras.layers.Dense(vocab_size, activation='softmax')
+    outputs = dense(merged)
     
     model = tf.keras.Model(inputs=[enc_inputs, dec_inputs], outputs=outputs)
     
-    # Load weights into the corrected body
+    # LOAD WEIGHTS
+    # This will now fit because both sides are 100!
     model.load_weights('chatbot_weights.weights.h5')
     
     return tokenizer, model
-tokenizer, model = load_my_model()
-reverse_word_index = {i: word for word, i in tokenizer.items()}
 
 # 3. Chat Logic
 def get_chatbot_response(user_input, creativity):
