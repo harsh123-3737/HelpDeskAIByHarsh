@@ -27,8 +27,11 @@ class AttentionLayer(tf.keras.layers.Layer):
 def load_my_model():
   with open('tokenizer.pickle', 'rb') as handle:
     tokenizer = pickle.load(handle)
-  model = tf.keras.models.load_model('movie_chatbot_model.h5', custom_objects={'AttentionLayer': AttentionLayer},
-                                     compile=False)
+model = tf.keras.models.load_model(
+    'movie_chatbot_model_v2.h5',  # Update this name!
+    custom_objects={'AttentionLayer': AttentionLayer},
+    compile=False
+)
   return tokenizer, model
 
 tokenizer, model = load_my_model()
