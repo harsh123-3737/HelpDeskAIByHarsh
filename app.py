@@ -28,34 +28,35 @@ class AttentionLayer(tf.keras.layers.Layer):
 
 # 2. Manual Model Reconstruction (Bypasses Keras 3 Errors)
 # 2. STEP 2: LOADING RESOURCES (Corrected Variable Names & Shapes)
+# 2. STEP 2: LOADING RESOURCES (Corrected to 256 LSTM Units)
 @st.cache_resource
 def load_my_model():
     try:
-        # Load the Tokenizer
         with open('tokenizer_final.pickle', 'rb') as handle:
             tokenizer_obj = pickle.load(handle)
         
-        # Vocab size from your error: 21048
         vocab_size = len(tokenizer_obj) + 1 
 
-        # --- REBUILD ARCHITECTURE ---
+        # --- REBUILD ARCHITECTURE (256 UNITS) ---
         # Encoder
         enc_inputs = tf.keras.Input(shape=(15,), name='enc_input')
-        enc_emb = tf.keras.layers.Embedding(vocab_size, 100)(enc_inputs) # MUST BE 100
-        enc_out, state_h, state_c = tf.keras.layers.LSTM(512, return_sequences=True, return_state=True)(enc_emb)
+        enc_emb = tf.keras.layers.Embedding(vocab_size, 100)(enc_inputs) 
+        # Changed 512 -> 256 here
+        enc_out, state_h, state_c = tf.keras.layers.LSTM(256, return_sequences=True, return_state=True)(enc_emb)
         
         # Decoder
         dec_inputs = tf.keras.Input(shape=(1,), name='dec_input')
-        dec_emb = tf.keras.layers.Embedding(vocab_size, 100)(dec_inputs) # MUST BE 100
-        dec_lstm = tf.keras.layers.LSTM(512, return_sequences=True, return_state=True)
+        dec_emb = tf.keras.layers.Embedding(vocab_size, 100)(dec_inputs) 
+        # Changed 512 -> 256 here
+        dec_lstm = tf.keras.layers.LSTM(256, return_sequences=True, return_state=True)
         dec_out, _, _ = dec_lstm(dec_emb, initial_state=[state_h, state_c])
         
-        # Attention
-        attn_layer = AttentionLayer(512)
+        # Attention (Match units to 256)
+        attn_layer = AttentionLayer(256)
         context, _ = attn_layer(state_h, enc_out)
         
-        # Merge & Output
-        decoder_combined = tf.concat([tf.reshape(dec_out, (-1, 512)), context], axis=-1)
+        # Merge & Output (Reshape to match 256)
+        decoder_combined = tf.concat([tf.reshape(dec_out, (-1, 256)), context], axis=-1)
         outputs = tf.keras.layers.Dense(vocab_size, activation='softmax')(decoder_combined)
         
         full_model = tf.keras.Model(inputs=[enc_inputs, dec_inputs], outputs=outputs)
