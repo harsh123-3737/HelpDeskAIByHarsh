@@ -29,7 +29,7 @@ class AttentionLayer(tf.keras.layers.Layer):
 # 2. Manual Model Reconstruction (Bypasses Keras 3 Errors)
 @st.cache_resource
 def load_my_model():
-    with open('tokenizer_final.pickle', 'rb') as handle:
+    with open('tokenizer_final.pickle', 'rb') as handle: 
         tokenizer = pickle.load(handle)
     
     vocab_size = len(tokenizer) + 1
@@ -61,10 +61,10 @@ def load_my_model():
     
     # LOAD RAW WEIGHTS (This ignores the 'batch_shape' error!)
     try:
-        model.load_weights('chatbot_weights.h5')
+        model.load_weights('chatbot_weights.weights.h5')
     except:
         # Fallback for different naming conventions
-        model.load_weights('chatbot_weights.h5', by_name=True, skip_mismatch=True)
+        model.load_weights('chatbot_weights.weights.h5', by_name=True, skip_mismatch=True)
         
     return tokenizer, model
 
