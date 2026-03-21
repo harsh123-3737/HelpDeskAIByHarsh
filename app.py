@@ -81,40 +81,70 @@ else:
     st.warning("Neural engine offline. Check 'chatbot_weights.weights.h5' and 'tokenizer_final.pickle' in GitHub.")
 
 # 3. STEP 3: THE CHAT LOGIC
+# 3. step3 the chat logic for app (VALIDATED FOR INFERENCE)
 def get_chatbot_response(user_input, creativity):
-    if not model or not tokenizer:
-        return "I'm still loading my cinematic memory... give me a moment!"
-        
     try:
         user_words = user_input.lower().split()
+        # Ensure we use .get() safely
         user_sequence = [tokenizer.get(word, 0) for word in user_words]
         user_padded = pad_sequences([user_sequence], maxlen=15, padding='post')
         
+        # Start token logic - using 'start' or index 1 as fallback
         target_sequence = np.zeros((1, 1))
         target_sequence[0, 0] = tokenizer.get('start', 1)
 
         decoded_sentence = []
+        
         for _ in range(12):
-            predictions = model.predict([user_padded, target_sequence], verbose=0)
-            preds = predictions[0, -1, :]
-
-            # Apply Temperature (Creativity)
-            preds = np.log(preds + 1e-7) / creativity
-            exp_preds = np.exp(preds)
-            preds = exp_preds / np.sum(exp_preds)
-
-            sampled_token_index = np.random.choice(range(len(preds)), p=preds)
-            sampled_word = reverse_word_index.get(sampled_token_index, '')
+            # Model prediction
+            output_tokens = model.predict([user_padded, target_sequence], verbose=0)
             
-            if sampled_word in ['end', '<eos>', 'pad', ''] or len(decoded_sentence) > 10:
+            # Handle potential 2D/3D output shape differences
+            if len(output_tokens.shape) == 3:
+                predictions = output_tokens[0, -1, :]
+            else:
+                predictions = output_tokens[0, :]
+
+            # Temperature / Creativity math
+            predictions = np.array(predictions).astype('float64')
+            predictions = np.log(predictions + 1e-7) / creativity
+            exp_preds = np.exp(predictions)
+            prob_distribution = exp_preds / np.sum(exp_preds)
+
+            # Top-K Sampling Fix:
+            # Instead of just picking from indices, we pick from the 5 best words 
+            # while keeping their relative probability weights
+            top_k = 5
+            top_k_indices = np.argsort(prob_distribution)[-top_k:]
+            top_k_probs = prob_distribution[top_k_indices]
+            top_k_probs = top_k_probs / np.sum(top_k_probs) # Re-normalize
+
+            sampled_token_index = np.random.choice(top_k_indices, p=top_k_probs)
+            sampled_word = reverse_word_index.get(sampled_token_index, '')
+
+            # Break conditions
+            if sampled_word in ['end', '<eos>', '<EOS>', 'pad', ''] or len(decoded_sentence) > 10:
                 break
+
+            # Avoid immediate repetition
+            if len(decoded_sentence) > 0 and sampled_word == decoded_sentence[-1]:
+                continue
                 
             decoded_sentence.append(sampled_word)
             target_sequence[0, 0] = sampled_token_index
 
-        response = " ".join(decoded_sentence).strip()
-        return response.capitalize() + "..." if response else "That's a plot twist I wasn't expecting!"
-    except:
+        # Final cleanup: deduplicate and capitalize
+        clean_output = []
+        for word in decoded_sentence:
+            if word not in clean_output:
+                clean_output.append(word)
+
+        response = " ".join(clean_output)
+        return response.capitalize() + "..." if response else "The script is a bit quiet on that one..."
+    
+    except Exception as e:
+        # Debugging for the hackathon
+        st.sidebar.error(f"Inference Logic Error: {e}")
         return "Analyzing the script... try another question!"
 
 # 4. STEP 4: STREAMLIT UI (National Hackathon Edition)
