@@ -29,43 +29,35 @@ class AttentionLayer(tf.keras.layers.Layer):
 # 2. Manual Model Reconstruction (Bypasses Keras 3 Errors)
 @st.cache_resource
 def load_my_model():
-    with open('tokenizer_final.pickle', 'rb') as handle: 
+    # 1. Load the Tokenizer
+    with open('tokenizer_final.pickle', 'rb') as handle:
         tokenizer = pickle.load(handle)
     
     vocab_size = len(tokenizer) + 1
     
-    # REBUILDING THE ARCHITECTURE EXACTLY
+    # 2. REBUILD SKELETON (Must match your training exactly)
     # Encoder
-    encoder_inputs = tf.keras.Input(shape=(15,), name='enc_input')
-    enc_emb = tf.keras.layers.Embedding(vocab_size, 256)(encoder_inputs)
-    encoder_outputs, state_h, state_c = tf.keras.layers.LSTM(512, return_sequences=True, return_state=True)(enc_emb)
+    enc_inputs = tf.keras.Input(shape=(15,))
+    enc_emb = tf.keras.layers.Embedding(vocab_size, 256)(enc_inputs)
+    enc_out, state_h, state_c = tf.keras.layers.LSTM(512, return_sequences=True, return_state=True)(enc_emb)
     
     # Decoder
-    decoder_inputs = tf.keras.Input(shape=(1,), name='dec_input')
-    dec_emb_layer = tf.keras.layers.Embedding(vocab_size, 256)
-    dec_emb = dec_emb_layer(decoder_inputs)
-    decoder_lstm = tf.keras.layers.LSTM(512, return_sequences=True, return_state=True)
-    decoder_outputs, _, _ = decoder_lstm(dec_emb, initial_state=[state_h, state_c])
+    dec_inputs = tf.keras.Input(shape=(1,))
+    dec_emb = tf.keras.layers.Embedding(vocab_size, 256)(dec_inputs)
+    dec_lstm = tf.keras.layers.LSTM(512, return_sequences=True, return_state=True)
+    dec_out, _, _ = dec_lstm(dec_emb, initial_state=[state_h, state_c])
     
-    # Attention
+    # Attention & Output
     attn_layer = AttentionLayer(512)
-    context_vector, _ = attn_layer(state_h, encoder_outputs)
-    
-    # Combine and Output
-    decoder_outputs = tf.reshape(decoder_outputs, (-1, decoder_outputs.shape[2]))
-    concat = tf.concat([decoder_outputs, context_vector], axis=-1)
+    context, _ = attn_layer(state_h, enc_out)
     dense = tf.keras.layers.Dense(vocab_size, activation='softmax')
-    outputs = dense(concat)
     
-    model = tf.keras.Model(inputs=[encoder_inputs, decoder_inputs], outputs=outputs)
+    # This rebuilds the "Body" of your AI
+    model = tf.keras.Model(inputs=[enc_inputs, dec_inputs], outputs=dense(tf.concat([tf.reshape(dec_out, (-1, 512)), context], axis=-1)))
     
-    # LOAD RAW WEIGHTS (This ignores the 'batch_shape' error!)
-    try:
-        model.load_weights('chatbot_weights.weights.h5')
-    except:
-        # Fallback for different naming conventions
-        model.load_weights('chatbot_weights.weights.h5', by_name=True, skip_mismatch=True)
-        
+    # 3. POUR IN THE WEIGHTS (The magic step!)
+    model.load_weights('chatbot_weights.weights.h5')
+    
     return tokenizer, model
 
 tokenizer, model = load_my_model()
