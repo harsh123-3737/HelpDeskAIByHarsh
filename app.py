@@ -140,6 +140,7 @@ def get_chatbot_response(user_input, creativity):
                 clean_output.append(word)
 
         response = " ".join(clean_output)
+        response = response.replace('<unk>', '').strip()
         return response.capitalize() + "..." if response else "The script is a bit quiet on that one..."
     
     except Exception as e:
