@@ -29,37 +29,39 @@ class AttentionLayer(tf.keras.layers.Layer):
 # 2. Manual Model Reconstruction (Bypasses Keras 3 Errors)
 @st.cache_resource
 def load_my_model():
-    # 1. Load the Tokenizer
     with open('tokenizer_final.pickle', 'rb') as handle:
         tokenizer = pickle.load(handle)
     
-    vocab_size = len(tokenizer) + 1
+    vocab_size = len(tokenizer) + 1 # This is 21048 based on your error
     
-    # 2. REBUILD SKELETON (Must match your training exactly)
-    # Encoder
+    # --- FIXED ARCHITECTURE ---
+    # 1. Change 256 to 100 (matches your error message)
     enc_inputs = tf.keras.Input(shape=(15,))
-    enc_emb = tf.keras.layers.Embedding(vocab_size, 256)(enc_inputs)
+    enc_emb = tf.keras.layers.Embedding(vocab_size, 100)(enc_inputs) 
+    
+    # 2. Check your LSTM units (If 512 fails, try 256 here too)
     enc_out, state_h, state_c = tf.keras.layers.LSTM(512, return_sequences=True, return_state=True)(enc_emb)
     
     # Decoder
     dec_inputs = tf.keras.Input(shape=(1,))
-    dec_emb = tf.keras.layers.Embedding(vocab_size, 256)(dec_inputs)
+    dec_emb = tf.keras.layers.Embedding(vocab_size, 100)(dec_inputs) # Change 256 to 100 here too
     dec_lstm = tf.keras.layers.LSTM(512, return_sequences=True, return_state=True)
     dec_out, _, _ = dec_lstm(dec_emb, initial_state=[state_h, state_c])
     
     # Attention & Output
     attn_layer = AttentionLayer(512)
     context, _ = attn_layer(state_h, enc_out)
-    dense = tf.keras.layers.Dense(vocab_size, activation='softmax')
     
-    # This rebuilds the "Body" of your AI
-    model = tf.keras.Model(inputs=[enc_inputs, dec_inputs], outputs=dense(tf.concat([tf.reshape(dec_out, (-1, 512)), context], axis=-1)))
+    # Combine
+    decoder_combined_context = tf.concat([tf.reshape(dec_out, (-1, 512)), context], axis=-1)
+    outputs = tf.keras.layers.Dense(vocab_size, activation='softmax')(decoder_combined_context)
     
-    # 3. POUR IN THE WEIGHTS (The magic step!)
+    model = tf.keras.Model(inputs=[enc_inputs, dec_inputs], outputs=outputs)
+    
+    # Load weights into the corrected body
     model.load_weights('chatbot_weights.weights.h5')
     
     return tokenizer, model
-
 tokenizer, model = load_my_model()
 reverse_word_index = {i: word for word, i in tokenizer.items()}
 
