@@ -162,10 +162,26 @@ st.set_page_config(page_title="Movie AI", page_icon="🎬", layout="centered")
 # Custom UI Styling
 st.markdown("""
 <style>
-.stApp {background-color: #FFFFFF;}
-.stChatMessage {border-radius: 15px; border: 1px solid #E6E9EF; background-color: #F8F9FB;}
-.stSidebar {background-color: #F0F2F6;}
-h1 {color: #D32F2F; font-family: 'Arial Black'; text-transform: uppercase;}
+/* 1. Light Mode (Default) */
+.stApp { background-color: #FFFFFF; }
+.stChatMessage { 
+    border-radius: 15px; 
+    border: 1px solid #E6E9EF; 
+    background-color: #F8F9FB; 
+    color: #000000; /* Force black text in light mode */
+}
+h1 { color: #D32F2F; font-family: 'Arial Black'; text-transform: uppercase; }
+
+/* 2. Dark Mode Detection */
+@media (prefers-color-color-scheme: dark) {
+    .stApp { background-color: #0E1117; } /* Standard Streamlit Dark */
+    .stChatMessage { 
+        background-color: #262730; 
+        border: 1px solid #464855;
+        color: #FFFFFF; /* Force white text in dark mode */
+    }
+    h1 { color: #FF4B4B; } /* Slightly brighter red for dark backgrounds */
+}
 </style>
 """, unsafe_allow_html=True)
 
