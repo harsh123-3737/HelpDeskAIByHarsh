@@ -27,48 +27,89 @@ class AttentionLayer(tf.keras.layers.Layer):
         return context_vector, attention_weights
 
 # 2. Manual Model Reconstruction (Bypasses Keras 3 Errors)
+# 2. STEP 2: LOADING RESOURCES (Corrected Variable Names & Shapes)
 @st.cache_resource
 def load_my_model():
-    with open('tokenizer_final.pickle', 'rb') as handle:
-        tokenizer = pickle.load(handle)
-    
-    # Based on your error, vocab_size is 21048
-    vocab_size = len(tokenizer) + 1 
+    try:
+        # Load the Tokenizer
+        with open('tokenizer_final.pickle', 'rb') as handle:
+            tokenizer_obj = pickle.load(handle)
+        
+        # Vocab size from your error: 21048
+        vocab_size = len(tokenizer_obj) + 1 
 
-    # --- THE CORRECT ARCHITECTURE (100-DIM) ---
-    # Encoder
-    enc_inputs = tf.keras.Input(shape=(15,))
-    # We change 256 to 100 here to match the weights
-    enc_emb = tf.keras.layers.Embedding(vocab_size, 100)(enc_inputs) 
-    enc_out, state_h, state_c = tf.keras.layers.LSTM(512, return_sequences=True, return_state=True)(enc_emb)
+        # --- REBUILD ARCHITECTURE ---
+        # Encoder
+        enc_inputs = tf.keras.Input(shape=(15,), name='enc_input')
+        enc_emb = tf.keras.layers.Embedding(vocab_size, 100)(enc_inputs) # MUST BE 100
+        enc_out, state_h, state_c = tf.keras.layers.LSTM(512, return_sequences=True, return_state=True)(enc_emb)
+        
+        # Decoder
+        dec_inputs = tf.keras.Input(shape=(1,), name='dec_input')
+        dec_emb = tf.keras.layers.Embedding(vocab_size, 100)(dec_inputs) # MUST BE 100
+        dec_lstm = tf.keras.layers.LSTM(512, return_sequences=True, return_state=True)
+        dec_out, _, _ = dec_lstm(dec_emb, initial_state=[state_h, state_c])
+        
+        # Attention
+        attn_layer = AttentionLayer(512)
+        context, _ = attn_layer(state_h, enc_out)
+        
+        # Merge & Output
+        decoder_combined = tf.concat([tf.reshape(dec_out, (-1, 512)), context], axis=-1)
+        outputs = tf.keras.layers.Dense(vocab_size, activation='softmax')(decoder_combined)
+        
+        full_model = tf.keras.Model(inputs=[enc_inputs, dec_inputs], outputs=outputs)
+        
+        # LOAD WEIGHTS
+        full_model.load_weights('chatbot_weights.weights.h5')
+        
+        return tokenizer_obj, full_model
+    except Exception as e:
+        st.error(f"Sync Error: {e}")
+        return None, None
+
+# Assign to global variables used in the rest of the script
+tokenizer, model = load_my_model()
+
+if tokenizer:
+    reverse_word_index = {i: word for word, i in tokenizer.items()}
+else:
+    st.warning("Neural engine offline. Please check GitHub files.")
+
+# 3. STEP 3: THE CHAT LOGIC (Using the corrected 'tokenizer' variable)
+def get_chatbot_response(user_input, creativity):
+    if not model or not tokenizer:
+        return "System Initializing... please wait."
+        
+    user_words = user_input.lower().split()
+    # Now 'tokenizer' is defined globally!
+    user_sequence = [tokenizer.get(word, 0) for word in user_words]
+    user_padded = pad_sequences([user_sequence], maxlen=15, padding='post')
     
-    # Decoder
-    dec_inputs = tf.keras.Input(shape=(1,))
-    # We change 256 to 100 here too
-    dec_emb_layer = tf.keras.layers.Embedding(vocab_size, 100)
-    dec_emb = dec_emb_layer(dec_inputs)
-    dec_lstm = tf.keras.layers.LSTM(512, return_sequences=True, return_state=True)
-    dec_out, _, _ = dec_lstm(dec_emb, initial_state=[state_h, state_c])
-    
-    # Attention
-    attn_layer = AttentionLayer(512)
-    context, _ = attn_layer(state_h, enc_out)
-    
-    # Combine (Matches the 512 + 512 concatenation)
-    decoder_out_reshaped = tf.reshape(dec_out, (-1, 512))
-    merged = tf.concat([decoder_out_reshaped, context], axis=-1)
-    
-    # Final Output Layer
-    dense = tf.keras.layers.Dense(vocab_size, activation='softmax')
-    outputs = dense(merged)
-    
-    model = tf.keras.Model(inputs=[enc_inputs, dec_inputs], outputs=outputs)
-    
-    # LOAD WEIGHTS
-    # This will now fit because both sides are 100!
-    model.load_weights('chatbot_weights.weights.h5')
-    
-    return tokenizer, model
+    target_sequence = np.zeros((1, 1))
+    target_sequence[0, 0] = tokenizer.get('start', 1)
+
+    decoded_sentence = []
+    for _ in range(12):
+        predictions = model.predict([user_padded, target_sequence], verbose=0)
+        preds = predictions[0, -1, :]
+
+        # Creativity/Temperature logic
+        preds = np.log(preds + 1e-7) / creativity
+        exp_preds = np.exp(preds)
+        preds = exp_preds / np.sum(exp_preds)
+
+        sampled_token_index = np.random.choice(range(len(preds)), p=preds)
+        sampled_word = reverse_word_index.get(sampled_token_index, '')
+        
+        if sampled_word in ['end', '<eos>', 'pad', ''] or len(decoded_sentence) > 10:
+            break
+            
+        decoded_sentence.append(sampled_word)
+        target_sequence[0, 0] = sampled_token_index
+
+    response = " ".join(decoded_sentence).strip()
+    return response.capitalize() + "..." if response else "I'm listening..."
 
 # 3. Chat Logic
 def get_chatbot_response(user_input, creativity):
